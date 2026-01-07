@@ -6,6 +6,7 @@ RUN apk add --no-cache musl-dev openssl-dev openssl-libs-static pkgconfig libxml
 WORKDIR /app
 COPY Cargo.toml Cargo.lock* ./
 COPY src ./src
+COPY static ./static
 
 # 静态链接构建
 ENV OPENSSL_STATIC=1

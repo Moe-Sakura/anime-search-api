@@ -64,13 +64,13 @@ cargo build --release
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/` | 搜索页面 |
-| POST | `/` | 搜索动漫 (FormData: `anime=关键词, rules=规则名, episodes=1`) |
-| GET | `/api` | API 信息 |
+| POST | `/api` | 搜索动漫 (FormData: `anime=关键词, rules=规则名, episodes=1`) |
+| GET | `/info` | API 信息 |
 | GET | `/rules` | 获取规则列表 |
 | GET | `/update` | 从 KazumiRules 更新规则 |
 | GET | `/health` | 健康检查 |
 
-> 💡 设置 `episodes=1` 可获取每个结果的集数列表，直接选集播放
+> 💡 设置 `episodes=1` 可获取每个结果的集数列表
 
 ### Bangumi API (公开)
 
@@ -144,7 +144,7 @@ formData.append('anime', '葬送的芙莉莲')
 formData.append('rules', 'AGE,MXdm,NT')
 formData.append('episodes', '1')  // 可选：获取集数列表
 
-const response = await fetch('/', {
+const response = await fetch('/api', {
   method: 'POST',
   body: formData,
 })
@@ -278,14 +278,17 @@ curl -o rules/gugu3.json https://raw.githubusercontent.com/Predidit/KazumiRules/
 anime-search-api/
 ├── Cargo.toml
 ├── Dockerfile
+├── compose.yaml
 ├── LICENSE
 ├── README.md
 ├── rules/              # 规则文件目录 (兼容 Kazumi)
 │   ├── AGE.json
 │   ├── MXdm.json
 │   └── ...
+├── static/
+│   └── index.html      # 前端页面
 └── src/
-    ├── main.rs         # 入口 + 路由 + 内置前端
+    ├── main.rs         # 入口 + 路由
     ├── core.rs         # 核心搜索逻辑 (SSE 流)
     ├── engine.rs       # 规则引擎 (XPath 解析)
     ├── rules.rs        # 规则加载器
