@@ -1,7 +1,7 @@
 # 构建阶段
 FROM rust:1.92-alpine AS builder
 
-RUN apk add --no-cache musl-dev openssl-dev openssl-libs-static pkgconfig libxml2-dev
+RUN apk add --no-cache musl-dev openssl-dev openssl-libs-static pkgconfig libxml2-dev clang-dev
 
 WORKDIR /app
 COPY Cargo.toml Cargo.lock* ./
