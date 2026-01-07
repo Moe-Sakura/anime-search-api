@@ -344,6 +344,70 @@ docker build -t anime-search-api .
 docker run -d -p 3000:3000 -v ./rules:/app/rules:ro anime-search-api
 ```
 
+## 🔄 Nginx 反向代理
+
+适配 Nginx 1.29+ / SSL / HTTP/3 / TLSv1.3：
+
+```nginx
+server {
+    listen 80;
+    listen [::]:80;
+    server_name anime.example.com;
+    return 301 https://$server_name$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    listen 443 quic;
+    listen [::]:443 quic;
+    server_name anime.example.com;
+
+    # HTTP/3
+    http2 on;
+    http3 on;
+    quic_gso on;
+    quic_retry on;
+    add_header Alt-Svc 'h3=":443"; ma=86400';
+
+    # SSL/TLS
+    ssl_certificate /path/to/cert.pem;
+    ssl_certificate_key /path/to/key.pem;
+    ssl_protocols TLSv1.3;
+    ssl_prefer_server_ciphers off;
+    ssl_session_timeout 1d;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_tickets off;
+
+    # OCSP Stapling
+    ssl_stapling on;
+    ssl_stapling_verify on;
+    ssl_trusted_certificate /path/to/chain.pem;
+
+    # Security Headers
+    add_header X-Content-Type-Options nosniff;
+    add_header X-Frame-Options DENY;
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # SSE 流式响应
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 86400s;
+        chunked_transfer_encoding on;
+    }
+}
+```
+
+> ⚠️ `proxy_buffering off` 确保 SSE 流式响应正常工作
+
 ## 🙏 致谢
 
 - [Kazumi](https://github.com/Predidit/Kazumi) - 规则格式参考
