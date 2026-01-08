@@ -245,8 +245,6 @@ fn parse_search_results(rule: &Rule, html: &str) -> anyhow::Result<Vec<SearchRes
 fn apply_position_filter(index: usize, filter: &Option<PositionFilter>) -> bool {
     match filter {
         Some(PositionFilter::GreaterThan(n)) => index >= *n,
-        Some(PositionFilter::LessThan(n)) => index < *n,
-        Some(PositionFilter::Equal(n)) => index == *n,
         None => true,
     }
 }

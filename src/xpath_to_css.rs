@@ -41,15 +41,11 @@ pub struct CssSelector {
     pub position_filter: Option<PositionFilter>,
 }
 
-/// 位置过滤器
+/// 位置过滤器 (用于 position() > n 等无法用 CSS 表达的情况)
 #[derive(Debug, Clone)]
 pub enum PositionFilter {
-    /// position() > n
+    /// position() > n (跳过前 n 个元素)
     GreaterThan(usize),
-    /// position() < n
-    LessThan(usize),
-    /// position() = n (已在 CSS 中处理)
-    Equal(usize),
 }
 
 // 正则表达式 (编译一次)
