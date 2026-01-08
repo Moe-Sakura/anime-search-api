@@ -3,451 +3,174 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>动漫聚搜</title>
+    <title>动漫聚搜 API 测试</title>
     <style>
-      :root {
-        --bg: #0d1117;
-        --card: #161b22;
-        --border: #30363d;
-        --text: #c9d1d9;
-        --text-muted: #8b949e;
-        --accent: #58a6ff;
-        --accent-hover: #79c0ff;
-      }
-      * {
-        margin: 0;
-        padding: 0;
-        box-sizing: border-box;
-      }
       body {
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        background: var(--bg);
-        color: var(--text);
-        min-height: 100vh;
-        padding: 24px 16px;
-        line-height: 1.5;
-      }
-      .container {
-        max-width: 900px;
+        font-family: system-ui, sans-serif;
+        max-width: 800px;
         margin: 0 auto;
+        padding: 20px;
       }
-
-      h1 {
-        font-size: 1.5rem;
-        font-weight: 600;
-        margin-bottom: 20px;
-      }
-
-      footer p {
-        text-align: center;
-      }
-
-      footer p a {
-        color: var(--accent);
-        text-decoration: none;
-      }
-
-      footer p a:hover {
-        color: var(--accent-hover);
-        text-decoration: underline;
-      }
-
       .search-box {
         display: flex;
         gap: 8px;
         margin-bottom: 16px;
       }
-      input[type="text"] {
+      #keyword {
         flex: 1;
-        padding: 10px 14px;
-        background: var(--card);
-        border: 1px solid var(--border);
-        border-radius: 6px;
-        color: var(--text);
+        padding: 8px;
         font-size: 14px;
-        outline: none;
       }
-      input:focus {
-        border-color: var(--accent);
-      }
-      input::placeholder {
-        color: var(--text-muted);
-      }
-
-      button {
-        padding: 10px 20px;
-        background: var(--accent);
-        border: none;
-        border-radius: 6px;
-        color: #fff;
-        font-size: 14px;
-        font-weight: 500;
-        cursor: pointer;
-      }
-      button:hover {
-        background: var(--accent-hover);
-      }
-      button:disabled {
-        opacity: 0.5;
-        cursor: not-allowed;
-      }
-
       .rules-section {
         margin-bottom: 16px;
+        padding: 10px;
+        background: #f5f5f5;
+        border-radius: 4px;
       }
       .rules-header {
         display: flex;
         justify-content: space-between;
-        align-items: center;
         margin-bottom: 8px;
-        font-size: 13px;
-        color: var(--text-muted);
-      }
-      .rules-actions {
-        display: flex;
-        gap: 6px;
-      }
-      .rules-actions button {
-        padding: 4px 10px;
-        font-size: 12px;
-        background: var(--card);
-        border: 1px solid var(--border);
-        color: var(--text);
       }
       .rules-grid {
         display: flex;
         flex-wrap: wrap;
         gap: 6px;
-        max-height: 100px;
         overflow-y: auto;
-        padding: 2px;
       }
       .rule-tag {
         display: flex;
         align-items: center;
-        gap: 5px;
-        padding: 5px 10px;
-        background: var(--card);
-        border: 1px solid var(--border);
-        border-radius: 4px;
+        gap: 4px;
+        padding: 4px 8px;
+        background: #fff;
+        border: 1px solid #ddd;
+        border-radius: 3px;
         font-size: 12px;
         cursor: pointer;
-      }
-      .rule-tag:hover {
-        border-color: var(--text-muted);
       }
       .rule-tag.selected {
-        border-color: var(--accent);
-        background: rgba(88, 166, 255, 0.1);
+        border-color: #0066cc;
+        background: #e6f0ff;
       }
-      .rule-tag input {
-        display: none;
-      }
-      .rule-dot {
-        width: 6px;
-        height: 6px;
-        border-radius: 50%;
-      }
-
-      .options-row {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        margin-bottom: 16px;
-        font-size: 13px;
-      }
-      .checkbox-label {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        cursor: pointer;
-      }
-      .checkbox-label input[type="checkbox"] {
-        width: 14px;
-        height: 14px;
-        accent-color: var(--accent);
-      }
-      .hint {
-        color: var(--text-muted);
-        font-size: 12px;
-      }
-
-      .bangumi-section {
-        margin-bottom: 16px;
-        display: none;
-      }
-      .bangumi-card {
-        display: flex;
-        gap: 14px;
-        padding: 14px;
-        background: var(--card);
-        border: 1px solid var(--border);
-        border-radius: 6px;
-      }
-      .bangumi-cover {
-        width: 80px;
-        height: 110px;
-        border-radius: 4px;
-        object-fit: cover;
-        flex-shrink: 0;
-      }
-      .bangumi-info {
-        flex: 1;
-        min-width: 0;
-      }
-      .bangumi-title {
-        font-size: 15px;
-        font-weight: 600;
-        margin-bottom: 2px;
-      }
-      .bangumi-title-jp {
-        font-size: 12px;
-        color: var(--text-muted);
-        margin-bottom: 6px;
-      }
-      .bangumi-meta {
-        display: flex;
-        gap: 8px;
-        flex-wrap: wrap;
-        margin-bottom: 6px;
-        font-size: 12px;
-      }
-      .bangumi-score {
-        color: #f59e0b;
-        font-weight: 600;
-      }
-      .bangumi-rank {
-        color: var(--text-muted);
-      }
-      .bangumi-summary {
-        font-size: 12px;
-        color: var(--text-muted);
-        max-height: 36px;
-        overflow: hidden;
-      }
-      .bangumi-link {
-        font-size: 12px;
-        color: var(--accent);
-        text-decoration: none;
-        margin-top: 4px;
-        display: inline-block;
-      }
-      .bangumi-link:hover {
-        text-decoration: underline;
-      }
-
       .progress {
-        height: 3px;
-        background: var(--border);
-        border-radius: 2px;
+        height: 4px;
+        background: #eee;
         margin-bottom: 16px;
         display: none;
-        overflow: hidden;
       }
       .progress-bar {
         height: 100%;
-        background: var(--accent);
+        background: #0066cc;
         width: 0%;
         transition: width 0.2s;
       }
-
-      .results {
-        display: flex;
-        flex-direction: column;
-        gap: 12px;
-      }
       .platform {
-        background: var(--card);
-        border: 1px solid var(--border);
-        border-radius: 6px;
-        padding: 12px;
-      }
-      .platform-header {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        margin-bottom: 10px;
-        font-size: 13px;
+        margin-bottom: 12px;
+        padding: 10px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
       }
       .platform-name {
-        font-weight: 600;
-      }
-      .platform-count {
-        color: var(--text-muted);
-        font-size: 12px;
-      }
-
-      .items {
-        display: flex;
-        flex-direction: column;
-        gap: 6px;
+        font-weight: bold;
+        margin-bottom: 8px;
       }
       .item {
-        padding: 8px 10px;
-        background: var(--bg);
-        border: 1px solid var(--border);
-        border-radius: 4px;
-        font-size: 13px;
+        padding: 6px 0;
+        border-bottom: 1px solid #eee;
       }
-      .item-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        gap: 8px;
+      .item:last-child {
+        border-bottom: none;
       }
-      .item-name {
-        flex: 1;
-        color: var(--accent);
+      .item a {
+        color: #0066cc;
         text-decoration: none;
-        word-break: break-all;
       }
-      .item-name:hover {
+      .item a:hover {
         text-decoration: underline;
       }
-      .item-toggle {
-        font-size: 11px;
-        color: var(--text-muted);
-        cursor: pointer;
-        padding: 2px 6px;
-        border: 1px solid var(--border);
-        border-radius: 3px;
-      }
-      .item-toggle:hover {
-        border-color: var(--text-muted);
-      }
-
       .episodes-panel {
-        margin-top: 8px;
-        padding-top: 8px;
-        border-top: 1px solid var(--border);
         display: none;
+        margin-top: 8px;
+        padding: 8px;
+        background: #f9f9f9;
       }
       .episodes-panel.show {
         display: block;
-      }
-      .road-name {
-        font-size: 11px;
-        color: var(--text-muted);
-        margin-bottom: 6px;
       }
       .episodes-grid {
         display: flex;
         flex-wrap: wrap;
         gap: 4px;
-        margin-bottom: 8px;
       }
       .episode-btn {
-        padding: 4px 8px;
+        padding: 2px 6px;
         font-size: 11px;
-        background: var(--card);
-        border: 1px solid var(--border);
-        border-radius: 3px;
-        color: var(--text);
+        background: #fff;
+        border: 1px solid #ddd;
+        border-radius: 2px;
+        color: #333;
         text-decoration: none;
       }
-      .episode-btn:hover {
-        border-color: var(--accent);
-        color: var(--accent);
-      }
-
       .error {
-        color: #f85149;
-        font-size: 13px;
+        color: red;
       }
       .empty {
-        color: var(--text-muted);
+        color: #666;
         text-align: center;
-        padding: 40px;
-      }
-      .loading {
-        color: var(--text-muted);
-        text-align: center;
-        padding: 16px;
+        padding: 20px;
       }
     </style>
   </head>
   <body>
-    <div class="container">
-      <h1>🎬 动漫聚搜</h1>
-      <div class="search-box">
-        <input
-          type="text"
-          id="keyword"
-          placeholder="输入动漫名称..."
-          autofocus
-        />
-        <button id="searchBtn" onclick="search()">搜索</button>
-      </div>
+    <h1>🎬 动漫聚搜 API 测试</h1>
 
-      <div class="rules-section">
-        <div class="rules-header">
-          <span>搜索源 (<span id="selectedCount">0</span> 已选)</span>
-          <div class="rules-actions">
-            <button onclick="selectAll()">全选</button>
-            <button onclick="selectNone()">清除</button>
-          </div>
-        </div>
-        <div class="rules-grid" id="rulesGrid">
-          <div class="loading">加载中...</div>
-        </div>
-      </div>
-
-      <div class="options-row">
-        <label class="checkbox-label">
-          <input type="checkbox" id="episodesCheck" />
-          <span>获取集数</span>
-        </label>
-        <span class="hint">(较慢)</span>
-      </div>
-
-      <div class="bangumi-section" id="bangumiSection">
-        <div class="bangumi-card" id="bangumiCard"></div>
-      </div>
-
-      <div class="progress" id="progress">
-        <div class="progress-bar" id="progressBar"></div>
-      </div>
-      <div class="results" id="results"></div>
+    <div class="search-box">
+      <input type="text" id="keyword" placeholder="输入动漫名称..." autofocus />
+      <button id="searchBtn" onclick="search()">搜索</button>
     </div>
 
-    <footer>
-      <p>
-        ©
-        <a href="https://saop.cc" target="_blank">Asuna</a>
-      </p>
-    </footer>
+    <div class="rules-section">
+      <div class="rules-header">
+        <span>搜索源 (<span id="selectedCount">0</span> 已选)</span>
+        <div>
+          <button onclick="selectAll()">全选</button>
+          <button onclick="selectNone()">清除</button>
+        </div>
+      </div>
+      <div class="rules-grid" id="rulesGrid">加载中...</div>
+    </div>
+
+    <div class="progress" id="progress">
+      <div class="progress-bar" id="progressBar"></div>
+    </div>
+
+    <div id="results"></div>
 
     <script>
-      const input = document.getElementById("keyword");
-      const btn = document.getElementById("searchBtn");
-      const progress = document.getElementById("progress");
-      const progressBar = document.getElementById("progressBar");
-      const results = document.getElementById("results");
-      const rulesGrid = document.getElementById("rulesGrid");
-      const selectedCount = document.getElementById("selectedCount");
-      const bangumiSection = document.getElementById("bangumiSection");
-      const bangumiCard = document.getElementById("bangumiCard");
+      const $ = (id) => document.getElementById(id);
+      const input = $("keyword");
+      const btn = $("searchBtn");
+      const progress = $("progress");
+      const progressBar = $("progressBar");
+      const results = $("results");
+      const rulesGrid = $("rulesGrid");
+      const selectedCount = $("selectedCount");
 
-      const colors = {
-        orange: "#f97316",
-        cyan: "#06b6d4",
-        purple: "#a855f7",
-        lime: "#84cc16",
-        pink: "#ec4899",
-        teal: "#14b8a6",
-        blue: "#3b82f6",
-        rose: "#f43f5e",
-        amber: "#f59e0b",
-        red: "#ef4444",
-        white: "#94a3b8",
-        green: "#22c55e",
-        yellow: "#eab308",
-        indigo: "#6366f1",
-        sky: "#0ea5e9",
-      };
+      const escapeHtml = (str) =>
+        String(str || "").replace(
+          /[&<>"']/g,
+          (c) =>
+            ({
+              "&": "&amp;",
+              "<": "&lt;",
+              ">": "&gt;",
+              '"': "&quot;",
+              "'": "&#39;",
+            }[c])
+        );
 
       let allRules = [];
-      const episodesCheck = document.getElementById("episodesCheck");
 
       input.addEventListener("keydown", (e) => {
         if (e.key === "Enter") search();
@@ -458,8 +181,9 @@
           const res = await fetch("/rules");
           allRules = await res.json();
           renderRules();
+          selectAll();
         } catch (e) {
-          rulesGrid.innerHTML = '<div class="error">加载规则失败</div>';
+          rulesGrid.innerHTML = '<span class="error">加载规则失败</span>';
         }
       }
 
@@ -467,22 +191,17 @@
         rulesGrid.innerHTML = allRules
           .map(
             (rule) => `
-        <label class="rule-tag" data-name="${rule.name}">
-          <input type="checkbox" value="${rule.name}">
-          <span class="rule-dot" style="background:${
-            colors[rule.color] || colors.white
-          }"></span>
-          ${rule.name}
+        <label class="rule-tag">
+          <input type="checkbox" value="${escapeHtml(rule.name)}">
+          ${escapeHtml(rule.name)}
         </label>
       `
           )
           .join("");
 
-        rulesGrid.querySelectorAll(".rule-tag").forEach((tag) => {
-          tag.addEventListener("click", () => {
-            const cb = tag.querySelector("input");
-            cb.checked = !cb.checked;
-            tag.classList.toggle("selected", cb.checked);
+        rulesGrid.querySelectorAll("input").forEach((cb) => {
+          cb.addEventListener("change", () => {
+            cb.closest(".rule-tag").classList.toggle("selected", cb.checked);
             updateCount();
           });
         });
@@ -515,109 +234,30 @@
         );
       }
 
-      async function fetchBangumiInfo(keyword) {
-        try {
-          const res = await fetch("/bgm/v0/search/subjects?limit=1", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ keyword, filter: { type: [2] } })
-          });
-          const data = await res.json();
-          if (data && data.data && data.data.length > 0) {
-            const subject = data.data[0];
-            renderBangumiInfo({
-              name: subject.name,
-              name_cn: subject.name_cn,
-              image: subject.images?.large || subject.images?.common,
-              score: subject.rating?.score,
-              rank: subject.rating?.rank,
-              air_date: subject.date,
-              summary: subject.summary,
-              url: `https://bgm.tv/subject/${subject.id}`
-            });
-          } else {
-            bangumiSection.style.display = "none";
-          }
-        } catch (e) {
-          bangumiSection.style.display = "none";
-        }
-      }
-
-      function renderBangumiInfo(info) {
-        bangumiSection.style.display = "block";
-        bangumiCard.innerHTML = `
-        <img class="bangumi-cover" src="${
-          info.image || ""
-        }" alt="" onerror="this.style.display='none'">
-        <div class="bangumi-info">
-          <div class="bangumi-title">${info.name_cn || info.name}</div>
-          ${
-            info.name_cn
-              ? `<div class="bangumi-title-jp">${info.name}</div>`
-              : ""
-          }
-          <div class="bangumi-meta">
-            ${
-              info.score
-                ? `<span class="bangumi-score">★ ${info.score.toFixed(
-                    1
-                  )}</span>`
-                : ""
-            }
-            ${
-              info.rank ? `<span class="bangumi-rank">#${info.rank}</span>` : ""
-            }
-            ${info.air_date ? `<span>${info.air_date}</span>` : ""}
-          </div>
-          ${
-            info.summary
-              ? `<div class="bangumi-summary">${info.summary}</div>`
-              : ""
-          }
-          <a class="bangumi-link" href="${
-            info.url
-          }" target="_blank" rel="noopener">Bangumi →</a>
-        </div>
-      `;
-      }
-
       async function search() {
         const keyword = input.value.trim();
         const selectedRules = getSelectedRules();
 
-        if (!keyword) {
-          alert("请输入动漫名称");
-          return;
-        }
-        if (selectedRules.length === 0) {
-          alert("请至少选择一个搜索源");
-          return;
-        }
+        if (!keyword) return alert("请输入动漫名称");
+        if (selectedRules.length === 0) return alert("请至少选择一个搜索源");
 
         btn.disabled = true;
         btn.textContent = "搜索中...";
         results.innerHTML = "";
-        bangumiSection.style.display = "none";
         progress.style.display = "block";
         progressBar.style.width = "0%";
-
-        fetchBangumiInfo(keyword);
 
         try {
           const formData = new FormData();
           formData.append("anime", keyword);
           formData.append("rules", selectedRules.join(","));
-          if (episodesCheck.checked) formData.append("episodes", "1");
 
           const response = await fetch("/api", {
             method: "POST",
             body: formData,
           });
-
-          if (!response.ok) {
-            const err = await response.json();
-            throw new Error(err.error || "请求失败");
-          }
+          if (!response.ok)
+            throw new Error((await response.json()).error || "请求失败");
 
           const reader = response.body.getReader();
           const decoder = new TextDecoder();
@@ -635,24 +275,22 @@
               if (!line.trim()) continue;
               try {
                 const data = JSON.parse(line);
-                if (data.progress) {
+                if (data.progress)
                   progressBar.style.width =
                     (data.progress.completed / data.progress.total) * 100 + "%";
-                }
                 if (data.result) renderPlatform(data.result);
                 if (data.done) {
                   progress.style.display = "none";
-                  if (!results.children.length) {
-                    results.innerHTML =
-                      '<div class="empty">未找到相关结果</div>';
-                  }
+                  if (!results.children.length)
+                    results.innerHTML = '<div class="empty">未找到结果</div>';
                 }
               } catch {}
             }
           }
         } catch (e) {
-          results.innerHTML =
-            '<div class="error">搜索失败: ' + e.message + "</div>";
+          results.innerHTML = `<div class="error">搜索失败: ${escapeHtml(
+            e.message
+          )}</div>`;
           progress.style.display = "none";
         } finally {
           btn.disabled = false;
@@ -662,82 +300,47 @@
 
       function renderPlatform(result) {
         if (result.error && !result.items?.length) return;
-
-        const color = colors[result.color] || colors.white;
         const div = document.createElement("div");
         div.className = "platform";
         div.innerHTML = `
-        <div class="platform-header">
-          <span class="platform-name" style="color:${color}">● ${
-          result.name
-        }</span>
-          <span class="platform-count">${result.items?.length || 0} 结果</span>
-          ${
-            result.error
-              ? '<span class="error">' + result.error + "</span>"
-              : ""
-          }
-        </div>
-        <div class="items">
-          ${(result.items || [])
-            .map((item, idx) => renderItem(item, idx))
-            .join("")}
-        </div>
-      `;
-        results.appendChild(div);
-
-        div.querySelectorAll(".item-toggle").forEach((btn) => {
-          btn.addEventListener("click", (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            const panel = btn.closest(".item").querySelector(".episodes-panel");
-            if (panel) {
-              panel.classList.toggle("show");
-              btn.textContent = panel.classList.contains("show")
-                ? "收起"
-                : "展开集数";
+        <div class="platform-name">${escapeHtml(result.name)} (${
+          result.items?.length || 0
+        })</div>
+        ${(result.items || [])
+          .map((item) => {
+            const hasEps = item.episodes?.length > 0;
+            return `<div class="item">
+            <a href="${escapeHtml(item.url)}" target="_blank">${escapeHtml(
+              item.name
+            )}</a>
+            ${
+              hasEps
+                ? `<button onclick="this.nextElementSibling.classList.toggle('show')">集数</button>
+            <div class="episodes-panel">${item.episodes
+              .map(
+                (road) => `
+              ${
+                road.name
+                  ? `<div><strong>${escapeHtml(road.name)}</strong></div>`
+                  : ""
+              }
+              <div class="episodes-grid">${road.episodes
+                .map(
+                  (ep) =>
+                    `<a class="episode-btn" href="${escapeHtml(
+                      ep.url
+                    )}" target="_blank">${escapeHtml(ep.name)}</a>`
+                )
+                .join("")}</div>
+            `
+              )
+              .join("")}</div>`
+                : ""
             }
-          });
-        });
-      }
-
-      function renderItem(item, idx) {
-        const hasEpisodes = item.episodes && item.episodes.length > 0;
-        const episodesHtml = hasEpisodes ? renderEpisodes(item.episodes) : "";
-
-        return `
-        <div class="item">
-          <div class="item-header">
-            <a class="item-name" href="${
-              item.url
-            }" target="_blank" rel="noopener">${item.name}</a>
-            ${hasEpisodes ? '<span class="item-toggle">展开集数</span>' : ""}
-          </div>
-          ${
-            hasEpisodes
-              ? `<div class="episodes-panel">${episodesHtml}</div>`
-              : ""
-          }
-        </div>
-      `;
-      }
-
-      function renderEpisodes(roads) {
-        return roads
-          .map(
-            (road) => `
-        ${road.name ? `<div class="road-name">${road.name}</div>` : ""}
-        <div class="episodes-grid">
-          ${road.episodes
-            .map(
-              (ep) =>
-                `<a class="episode-btn" href="${ep.url}" target="_blank" rel="noopener">${ep.name}</a>`
-            )
-            .join("")}
-        </div>
-      `
-          )
-          .join("");
+          </div>`;
+          })
+          .join("")}`;
+        results.appendChild(div);
       }
 
       loadRules();

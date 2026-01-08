@@ -8,20 +8,9 @@ use crate::xpath_to_css::{xpath_to_css, PositionFilter};
 use scraper::{Html, Selector, ElementRef};
 use tracing::{debug, warn};
 
-/// 使用规则搜索动漫
+/// 使用规则搜索动漫 (自动获取集数信息)
 pub async fn search_with_rule(rule: &Rule, keyword: &str) -> PlatformSearchResult {
     match execute_search(rule, keyword).await {
-        Ok(items) => PlatformSearchResult::with_items(items),
-        Err(e) => {
-            warn!("规则 {} 搜索失败: {}", rule.name, e);
-            PlatformSearchResult::with_error(e.to_string())
-        }
-    }
-}
-
-/// 使用规则搜索动漫 (包含集数信息)
-pub async fn search_with_rule_and_episodes(rule: &Rule, keyword: &str) -> PlatformSearchResult {
-    match execute_search_with_episodes(rule, keyword).await {
         Ok(items) => PlatformSearchResult::with_items(items),
         Err(e) => {
             warn!("规则 {} 搜索失败: {}", rule.name, e);
@@ -51,22 +40,13 @@ async fn execute_search(rule: &Rule, keyword: &str) -> anyhow::Result<Vec<Search
     };
 
     // 解析 HTML 并提取结果
-    let items = parse_search_results(rule, &html)?;
+    let mut items = parse_search_results(rule, &html)?;
     
     debug!("规则 {} 找到 {} 个结果", rule.name, items.len());
-    Ok(items)
-}
-
-async fn execute_search_with_episodes(rule: &Rule, keyword: &str) -> anyhow::Result<Vec<SearchResultItem>> {
-    // 先执行普通搜索
-    let mut items = execute_search(rule, keyword).await?;
 
     // 如果规则有章节选择器，获取每个结果的章节信息
     if !rule.chapter_roads.is_empty() && !rule.chapter_result.is_empty() {
-        // 限制并发获取章节的数量，避免请求过多
-        let max_items = 5.min(items.len());
-        
-        for item in items.iter_mut().take(max_items) {
+        for item in items.iter_mut() {
             match fetch_episodes(rule, &item.url).await {
                 Ok(episodes) => {
                     if !episodes.is_empty() {
@@ -84,7 +64,7 @@ async fn execute_search_with_episodes(rule: &Rule, keyword: &str) -> anyhow::Res
 }
 
 /// 获取动漫详情页的章节列表
-pub async fn fetch_episodes(rule: &Rule, detail_url: &str) -> anyhow::Result<Vec<EpisodeRoad>> {
+async fn fetch_episodes(rule: &Rule, detail_url: &str) -> anyhow::Result<Vec<EpisodeRoad>> {
     if rule.chapter_roads.is_empty() || rule.chapter_result.is_empty() {
         return Ok(vec![]);
     }
@@ -132,18 +112,15 @@ fn parse_episodes(rule: &Rule, html: &str, base_url: &str) -> anyhow::Result<Vec
 
         // 在播放源内查找章节
         for ep_element in road_element.select(&result_selector) {
-                // 获取集数名称
             let name = get_element_text(&ep_element).trim().to_string();
-                
-                // 获取播放链接
             let href = ep_element.value().attr("href").unwrap_or_default().to_string();
-                
-                if name.is_empty() || href.is_empty() {
-                    continue;
-                }
+            
+            if name.is_empty() || href.is_empty() {
+                continue;
+            }
 
-                let url = normalize_url(&href, &url_base);
-                episodes.push(Episode { name, url });
+            let url = normalize_url(&href, &url_base);
+            episodes.push(Episode { name, url });
         }
 
         if !episodes.is_empty() {
@@ -246,8 +223,8 @@ fn apply_position_filter(index: usize, filter: &Option<PositionFilter>) -> bool 
     match filter {
         Some(PositionFilter::GreaterThan(n)) => index >= *n,
         None => true,
-        }
     }
+}
 
 /// 获取元素的文本内容
 fn get_element_text(element: &ElementRef) -> String {

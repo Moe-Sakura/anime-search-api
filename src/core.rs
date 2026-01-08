@@ -1,7 +1,7 @@
 //! 核心搜索逻辑
 //! 处理并发搜索和 SSE 流式响应
 
-use crate::engine::{search_with_rule, search_with_rule_and_episodes};
+use crate::engine::search_with_rule;
 use crate::types::{Rule, StreamEvent, StreamProgress, StreamResult};
 use futures::stream::Stream;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -10,25 +10,15 @@ use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tracing::{debug, info};
 
-/// 使用指定规则执行流式搜索 (不获取集数)
-#[allow(dead_code)]
+/// 使用指定规则执行流式搜索
 pub fn search_stream_with_rules(
     keyword: String,
     rules: Vec<Arc<Rule>>,
 ) -> impl Stream<Item = String> {
-    search_stream_with_rules_options(keyword, rules, false)
-}
-
-/// 使用指定规则执行流式搜索 (可选获取集数)
-pub fn search_stream_with_rules_options(
-    keyword: String,
-    rules: Vec<Arc<Rule>>,
-    fetch_episodes: bool,
-) -> impl Stream<Item = String> {
     let (tx, rx) = mpsc::channel::<String>(100);
 
     tokio::spawn(async move {
-        execute_parallel_search(keyword, rules, tx, fetch_episodes).await;
+        execute_parallel_search(keyword, rules, tx).await;
     });
 
     ReceiverStream::new(rx)
@@ -39,12 +29,11 @@ async fn execute_parallel_search(
     keyword: String,
     rules: Vec<Arc<Rule>>,
     tx: mpsc::Sender<String>,
-    fetch_episodes: bool,
 ) {
     let total = rules.len();
     let completed = Arc::new(AtomicUsize::new(0));
 
-    info!("开始搜索: {}, 共 {} 个规则, 获取集数: {}", keyword, total, fetch_episodes);
+    info!("开始搜索: {}, 共 {} 个规则", keyword, total);
 
     // 发送初始事件
     let init_event = StreamEvent::Init { total };
@@ -61,11 +50,7 @@ async fn execute_parallel_search(
         let completed = completed.clone();
 
         let handle = tokio::spawn(async move {
-            let result = if fetch_episodes {
-                search_with_rule_and_episodes(&rule, &keyword).await
-            } else {
-                search_with_rule(&rule, &keyword).await
-            };
+            let result = search_with_rule(&rule, &keyword).await;
             let current = completed.fetch_add(1, Ordering::SeqCst) + 1;
 
             let progress = StreamProgress {

@@ -190,14 +190,6 @@ pub struct PlatformSearchResult {
 }
 
 impl PlatformSearchResult {
-    pub fn new() -> Self {
-        Self {
-            items: Vec::new(),
-            count: 0,
-            error: None,
-        }
-    }
-
     pub fn with_error(message: String) -> Self {
         Self {
             items: Vec::new(),
@@ -218,7 +210,11 @@ impl PlatformSearchResult {
 
 impl Default for PlatformSearchResult {
     fn default() -> Self {
-        Self::new()
+        Self {
+            items: Vec::new(),
+            count: 0,
+            error: None,
+        }
     }
 }
 

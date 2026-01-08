@@ -1,4 +1,5 @@
 mod bangumi;
+mod config;
 mod core;
 mod engine;
 mod http_client;
@@ -6,6 +7,8 @@ mod rules;
 mod types;
 mod updater;
 mod xpath_to_css;
+
+use config::CONFIG;
 
 use axum::{
     body::Body,
@@ -22,7 +25,7 @@ use tower_http::cors::{Any, CorsLayer};
 use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
 
-use crate::core::search_stream_with_rules_options;
+use crate::core::search_stream_with_rules;
 use crate::rules::get_builtin_rules;
 
 #[tokio::main]
@@ -42,9 +45,12 @@ async fn main() {
         .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
         .allow_headers([header::CONTENT_TYPE]);
 
-    // 检查启动时是否自动更新规则
-    if std::env::var("AUTO_UPDATE").unwrap_or_default() == "1" {
-        info!("📡 正在检查规则更新...");
+    // 检查是否需要拉取规则（本地无规则或设置了 AUTO_UPDATE）
+    let need_update = !updater::has_local_rules() 
+        || std::env::var("AUTO_UPDATE").unwrap_or_default() == "1";
+    
+    if need_update {
+        info!("📡 正在拉取规则...");
         let result = updater::update_rules().await;
         info!(
             "📦 更新完成: {} 新增, {} 更新, {} 失败",
@@ -66,11 +72,7 @@ async fn main() {
         .layer(cors);
 
     // 启动服务器
-    let port = std::env::var("PORT")
-        .ok()
-        .and_then(|p| p.parse().ok())
-        .unwrap_or(3000);
-    let addr = SocketAddr::from(([0, 0, 0, 0], port));
+    let addr = SocketAddr::from(([0, 0, 0, 0], CONFIG.port));
 
     info!("🚀 动漫聚搜 API 启动在 http://{}", addr);
     info!("📚 已加载 {} 个规则", get_builtin_rules().len());
@@ -115,7 +117,6 @@ async fn search_handler(mut multipart: Multipart) -> Response {
     // 解析 FormData
     let mut keyword: Option<String> = None;
     let mut rule_names: Option<String> = None;
-    let mut fetch_episodes = false;
 
     while let Ok(Some(field)) = multipart.next_field().await {
         match field.name() {
@@ -127,11 +128,6 @@ async fn search_handler(mut multipart: Multipart) -> Response {
             Some("rules") => {
                 if let Ok(text) = field.text().await {
                     rule_names = Some(text.trim().to_string());
-                }
-            }
-            Some("episodes") => {
-                if let Ok(text) = field.text().await {
-                    fetch_episodes = text.trim() == "1" || text.trim().to_lowercase() == "true";
                 }
             }
             _ => {}
@@ -181,18 +177,17 @@ async fn search_handler(mut multipart: Multipart) -> Response {
     }
 
     info!(
-        "🔍 搜索: {} (规则: {}, 获取集数: {})",
+        "🔍 搜索: {} (规则: {})",
         keyword,
         selected_rules
             .iter()
             .map(|r| r.name.as_str())
             .collect::<Vec<_>>()
-            .join(", "),
-        fetch_episodes
+            .join(", ")
     );
 
     // 创建 SSE 流
-    let stream = search_stream_with_rules_options(keyword, selected_rules, fetch_episodes);
+    let stream = search_stream_with_rules(keyword, selected_rules);
 
     // 将流转换为字节流
     let body = Body::from_stream(stream.map(|s| Ok::<_, std::convert::Infallible>(s)));
@@ -253,9 +248,6 @@ async fn update_handler() -> impl IntoResponse {
 // Bangumi API 通用代理
 // ============================================================================
 
-const BANGUMI_API_BASE: &str = "https://api.bgm.tv";
-const BANGUMI_USER_AGENT: &str = "kirito/anime-search (https://github.com/AdingApkgg/anime-search-api)";
-
 /// 通用 Bangumi API 代理
 /// 将 /bgm/* 的请求透传到 api.bgm.tv/*，自动添加 CORS 头
 async fn bangumi_proxy_handler(
@@ -267,26 +259,26 @@ async fn bangumi_proxy_handler(
     
     // 构建目标 URL
     let query = req.uri().query().map(|q| format!("?{}", q)).unwrap_or_default();
-    let target_url = format!("{}/{}{}", BANGUMI_API_BASE, path, query);
+    let target_url = format!("{}/{}{}", CONFIG.bangumi_api_base, path, query);
     
     // 构建请求
     let method = req.method().clone();
     let mut request_builder = HTTP_CLIENT.request(method.clone(), &target_url)
-        .header("User-Agent", BANGUMI_USER_AGENT);
+        .header("User-Agent", &CONFIG.bangumi_user_agent);
     
     // 转发 Authorization 头
     if let Some(auth) = headers.get("Authorization") {
         if let Ok(auth_str) = auth.to_str() {
             request_builder = request_builder.header("Authorization", auth_str);
+        }
     }
-}
 
     // 转发 Content-Type 头
     if let Some(ct) = headers.get("Content-Type") {
         if let Ok(ct_str) = ct.to_str() {
             request_builder = request_builder.header("Content-Type", ct_str);
+        }
     }
-}
 
     // 如果有 body，转发 body
     let body_bytes = match axum::body::to_bytes(req.into_body(), 10 * 1024 * 1024).await {
@@ -329,8 +321,9 @@ async fn bangumi_proxy_handler(
             return (
                 StatusCode::BAD_GATEWAY,
                 Json(json!({"error": format!("Failed to read response: {}", e)})),
-            ).into_response();
-    }
+            )
+                .into_response();
+        }
     };
     
     Response::builder()

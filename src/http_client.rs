@@ -1,40 +1,27 @@
+use crate::config::CONFIG;
 use once_cell::sync::Lazy;
 use reqwest::{Client, Response};
 use std::collections::HashMap;
 use std::time::Duration;
 use thiserror::Error;
 
-const TIMEOUT_SECONDS: u64 = 15;
-const RETRY_TIMEOUT_SECONDS: u64 = 20;
-
-const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36";
-
-/// 反代前缀 (用于网络问题时重试)
-const PROXY_PREFIX: &str = "https://rp.30hb.cn/?target=";
-
-/// 全局 HTTP 客户端
-pub static HTTP_CLIENT: Lazy<Client> = Lazy::new(|| {
+/// 创建 HTTP 客户端
+fn build_client(timeout_secs: u64) -> Client {
     Client::builder()
-        .timeout(Duration::from_secs(TIMEOUT_SECONDS))
-        .user_agent(USER_AGENT)
+        .timeout(Duration::from_secs(timeout_secs))
+        .user_agent(&CONFIG.user_agent)
         .gzip(true)
         .brotli(true)
         .danger_accept_invalid_certs(true) // 某些站点证书有问题
         .build()
         .expect("Failed to create HTTP client")
-});
+}
+
+/// 全局 HTTP 客户端
+pub static HTTP_CLIENT: Lazy<Client> = Lazy::new(|| build_client(CONFIG.timeout_seconds));
 
 /// 用于重试的 HTTP 客户端 (更长超时)
-pub static RETRY_CLIENT: Lazy<Client> = Lazy::new(|| {
-    Client::builder()
-        .timeout(Duration::from_secs(RETRY_TIMEOUT_SECONDS))
-        .user_agent(USER_AGENT)
-        .gzip(true)
-        .brotli(true)
-        .danger_accept_invalid_certs(true)
-        .build()
-        .expect("Failed to create retry HTTP client")
-});
+static RETRY_CLIENT: Lazy<Client> = Lazy::new(|| build_client(CONFIG.retry_timeout_seconds));
 
 #[derive(Debug, Error)]
 pub enum HttpClientError {
@@ -101,7 +88,7 @@ pub async fn get(url: &str, referer: Option<&str>) -> Result<Response, HttpClien
             };
 
             if should_use_proxy {
-                let proxy_url = format!("{}{}", PROXY_PREFIX, url);
+                let proxy_url = format!("{}{}", CONFIG.proxy_prefix, url);
                 tracing::debug!("使用反代重试: {}", url);
                 get_internal(&RETRY_CLIENT, &proxy_url, referer).await
             } else {
@@ -185,7 +172,7 @@ pub async fn post_form_text(
             };
 
             if should_use_proxy {
-                let proxy_url = format!("{}{}", PROXY_PREFIX, url);
+                let proxy_url = format!("{}{}", CONFIG.proxy_prefix, url);
                 tracing::debug!("使用反代重试 POST: {}", url);
                 let resp = post_form_internal(&RETRY_CLIENT, &proxy_url, form, referer).await?;
                 resp.text()

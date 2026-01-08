@@ -1,34 +1,75 @@
 //! 规则自动更新器
-//! 从 KazumiRules 仓库获取最新规则
+//! 通过 GitHub API 检测 KazumiRules 仓库变动并同步规则
 
+use crate::config::CONFIG;
 use crate::http_client::HTTP_CLIENT;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
-use tracing::{info, warn};
-
-/// Kazumi 规则仓库地址
-const KAZUMI_RULES_INDEX: &str =
-    "https://raw.githubusercontent.com/Predidit/KazumiRules/main/index.json";
-const KAZUMI_RULES_BASE: &str =
-    "https://raw.githubusercontent.com/Predidit/KazumiRules/main/";
+use tracing::{debug, info, warn};
 
 /// 规则目录
 const RULES_DIR: &str = "rules";
+/// 存储上次 commit SHA 的文件
+const LAST_COMMIT_FILE: &str = "rules/.last_commit";
 
-/// 索引项
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct IndexItem {
-    pub name: String,
-    pub version: String,
-    #[serde(default)]
-    pub use_native_player: bool,
-    #[serde(default)]
-    pub author: String,
-    #[serde(default)]
-    pub last_update: u64,
+/// 带代理重试的 GET 请求
+async fn get_with_retry(url: &str) -> anyhow::Result<reqwest::Response> {
+    // 第一次直接请求
+    let result = HTTP_CLIENT
+        .get(url)
+        .header("Accept", "application/vnd.github.v3+json")
+        .header("User-Agent", "anime-search-api")
+        .send()
+        .await;
+
+    match result {
+        Ok(resp) if resp.status().is_success() => Ok(resp),
+        Ok(resp) => {
+            // 状态码错误，尝试代理
+            let status = resp.status();
+            debug!("请求失败 ({}), 尝试代理: {}", status, url);
+            get_via_proxy(url).await
+        }
+        Err(e) => {
+            // 网络错误，尝试代理
+            debug!("请求失败 ({}), 尝试代理: {}", e, url);
+            get_via_proxy(url).await
+        }
+    }
+}
+
+/// 通过代理请求
+async fn get_via_proxy(url: &str) -> anyhow::Result<reqwest::Response> {
+    let proxy_url = format!("{}{}", CONFIG.github_proxy, url);
+    debug!("使用代理: {}", proxy_url);
+
+    let response = HTTP_CLIENT
+        .get(&proxy_url)
+        .header("Accept", "application/vnd.github.v3+json")
+        .header("User-Agent", "anime-search-api")
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        anyhow::bail!("代理请求失败: HTTP {}", response.status());
+    }
+
+    Ok(response)
+}
+
+/// GitHub Commit 响应
+#[derive(Debug, Deserialize)]
+struct GitHubCommit {
+    sha: String,
+}
+
+/// GitHub Contents 响应 (文件列表)
+#[derive(Debug, Deserialize)]
+struct GitHubContent {
+    name: String,
+    #[serde(rename = "type")]
+    content_type: String,
 }
 
 /// 更新结果
@@ -44,74 +85,93 @@ pub struct UpdateResult {
 #[derive(Debug, Clone, Serialize)]
 pub struct UpdateDetail {
     pub name: String,
-    pub action: String, // "added", "updated", "failed", "skipped"
+    pub action: String, // "added", "updated", "failed"
     pub message: String,
 }
 
-/// 从远程获取最新索引
-async fn fetch_remote_index() -> anyhow::Result<Vec<IndexItem>> {
-    let response = HTTP_CLIENT
-        .get(KAZUMI_RULES_INDEX)
-        .send()
-        .await?;
-
-    if !response.status().is_success() {
-        anyhow::bail!("获取远程索引失败: HTTP {}", response.status());
+/// 检查本地是否有规则文件
+pub fn has_local_rules() -> bool {
+    let rules_path = Path::new(RULES_DIR);
+    if !rules_path.exists() {
+        return false;
     }
 
-    let index: Vec<IndexItem> = response.json().await?;
-    Ok(index)
+    match fs::read_dir(rules_path) {
+        Ok(entries) => entries
+            .flatten()
+            .any(|e| {
+                let name = e.file_name();
+                let name = name.to_string_lossy();
+                name.ends_with(".json") && name != "index.json"
+            }),
+        Err(_) => false,
+    }
 }
 
-/// 读取本地索引 (从 index.json)
-fn read_local_index() -> HashMap<String, IndexItem> {
-    let index_path = Path::new(RULES_DIR).join("index.json");
-    let mut map = HashMap::new();
+/// 读取上次的 commit SHA
+fn read_last_commit() -> Option<String> {
+    fs::read_to_string(LAST_COMMIT_FILE).ok().map(|s| s.trim().to_string())
+}
 
-    if let Ok(content) = fs::read_to_string(&index_path) {
-        if let Ok(items) = serde_json::from_str::<Vec<IndexItem>>(&content) {
-            for item in items {
-                map.insert(item.name.clone(), item);
-            }
-        }
-    }
+/// 保存当前 commit SHA
+fn save_last_commit(sha: &str) -> anyhow::Result<()> {
+    let _ = fs::create_dir_all(RULES_DIR);
+    fs::write(LAST_COMMIT_FILE, sha)?;
+    Ok(())
+}
 
-    map
+/// 获取仓库最新 commit SHA
+async fn fetch_latest_commit() -> anyhow::Result<String> {
+    let url = CONFIG.github_api_commits();
+    let response = get_with_retry(&url).await?;
+    let commit: GitHubCommit = response.json().await?;
+    Ok(commit.sha)
+}
+
+/// 获取仓库中的所有规则文件名
+async fn fetch_rule_files() -> anyhow::Result<Vec<String>> {
+    let url = CONFIG.github_api_contents();
+    let response = get_with_retry(&url).await?;
+    let contents: Vec<GitHubContent> = response.json().await?;
+
+    // 过滤出 .json 文件，排除 index.json
+    let rule_files: Vec<String> = contents
+        .into_iter()
+        .filter(|c| {
+            c.content_type == "file" && c.name.ends_with(".json") && c.name != "index.json"
+        })
+        .map(|c| c.name.trim_end_matches(".json").to_string())
+        .collect();
+
+    Ok(rule_files)
 }
 
 /// 下载单个规则
 async fn download_rule(name: &str) -> anyhow::Result<String> {
-    let url = format!("{}{}.json", KAZUMI_RULES_BASE, name);
-    let response = HTTP_CLIENT.get(&url).send().await?;
-
-    if !response.status().is_success() {
-        anyhow::bail!("HTTP {}", response.status());
-    }
-
+    let url = format!("{}{}.json", CONFIG.github_raw_base(), name);
+    let response = get_with_retry(&url).await?;
     let content = response.text().await?;
-    
+
     // 验证 JSON 格式
     serde_json::from_str::<serde_json::Value>(&content)?;
-    
+
     Ok(content)
 }
 
 /// 保存规则到本地
 fn save_rule(name: &str, content: &str) -> anyhow::Result<()> {
+    let _ = fs::create_dir_all(RULES_DIR);
     let path = Path::new(RULES_DIR).join(format!("{}.json", name));
     fs::write(path, content)?;
     Ok(())
 }
 
-/// 保存本地索引
-fn save_local_index(items: &[IndexItem]) -> anyhow::Result<()> {
-    let index_path = Path::new(RULES_DIR).join("index.json");
-    let content = serde_json::to_string_pretty(items)?;
-    fs::write(index_path, content)?;
-    Ok(())
+/// 检查本地是否存在该规则
+fn rule_exists(name: &str) -> bool {
+    Path::new(RULES_DIR).join(format!("{}.json", name)).exists()
 }
 
-/// 检查并更新规则
+/// 检测变动并更新规则
 pub async fn update_rules() -> UpdateResult {
     let mut result = UpdateResult {
         total: 0,
@@ -121,96 +181,104 @@ pub async fn update_rules() -> UpdateResult {
         details: Vec::new(),
     };
 
-    // 获取远程索引
-    let remote_index = match fetch_remote_index().await {
-        Ok(index) => index,
+    // 检查是否需要强制更新（本地无规则）
+    let force_update = !has_local_rules();
+    if force_update {
+        info!("📦 本地无规则文件，立即拉取...");
+    }
+
+    // 获取最新 commit SHA
+    let latest_commit = match fetch_latest_commit().await {
+        Ok(sha) => sha,
         Err(e) => {
-            warn!("获取远程索引失败: {}", e);
+            warn!("获取最新 commit 失败: {}", e);
             result.details.push(UpdateDetail {
-                name: "index".to_string(),
+                name: "commit".to_string(),
                 action: "failed".to_string(),
-                message: format!("获取远程索引失败: {}", e),
+                message: format!("获取 commit 失败: {}", e),
             });
             return result;
         }
     };
 
-    result.total = remote_index.len();
-    info!("📡 远程索引包含 {} 个规则", remote_index.len());
+    debug!("最新 commit: {}", &latest_commit[..7]);
 
-    // 读取本地索引
-    let local_index = read_local_index();
+    // 检查是否有变动
+    let last_commit = read_last_commit();
+    let has_changes = force_update || last_commit.as_ref() != Some(&latest_commit);
 
-    // 确保规则目录存在
-    let _ = fs::create_dir_all(RULES_DIR);
+    if !has_changes {
+        info!("📋 规则无变动 (commit: {})", &latest_commit[..7]);
+        return result;
+    }
 
-    // 收集更新后的索引项
-    let mut updated_index = Vec::new();
+    info!(
+        "🔄 检测到变动: {} -> {}",
+        last_commit.as_ref().map(|s| &s[..7]).unwrap_or("无"),
+        &latest_commit[..7]
+    );
 
-    // 检查每个规则
-    for remote_item in &remote_index {
-        let local_item = local_index.get(&remote_item.name);
-        
-        let need_update = match local_item {
-            None => true, // 本地不存在
-            Some(local) => {
-                // 版本不同或时间戳更新
-                local.version != remote_item.version 
-                    || local.last_update < remote_item.last_update
-            }
-        };
+    // 获取规则文件列表
+    let rule_files = match fetch_rule_files().await {
+        Ok(files) => files,
+        Err(e) => {
+            warn!("获取规则列表失败: {}", e);
+            result.details.push(UpdateDetail {
+                name: "contents".to_string(),
+                action: "failed".to_string(),
+                message: format!("获取文件列表失败: {}", e),
+            });
+            return result;
+        }
+    };
 
-        if need_update {
-            match download_rule(&remote_item.name).await {
-                Ok(content) => {
-                    if let Err(e) = save_rule(&remote_item.name, &content) {
-                        warn!("保存规则 {} 失败: {}", remote_item.name, e);
-                        result.failed += 1;
-                        result.details.push(UpdateDetail {
-                            name: remote_item.name.clone(),
-                            action: "failed".to_string(),
-                            message: format!("保存失败: {}", e),
-                        });
-                    } else {
-                        let action = if local_item.is_some() { "updated" } else { "added" };
-                        if local_item.is_some() {
-                            result.updated += 1;
-                            info!("🔄 更新规则: {} -> v{}", remote_item.name, remote_item.version);
-                        } else {
-                            result.added += 1;
-                            info!("➕ 新增规则: {} v{}", remote_item.name, remote_item.version);
-                        }
-                        result.details.push(UpdateDetail {
-                            name: remote_item.name.clone(),
-                            action: action.to_string(),
-                            message: format!("v{}", remote_item.version),
-                        });
-                        updated_index.push(remote_item.clone());
-                    }
-                }
-                Err(e) => {
-                    warn!("下载规则 {} 失败: {}", remote_item.name, e);
+    result.total = rule_files.len();
+    info!("📡 发现 {} 个规则文件", rule_files.len());
+
+    // 下载并保存每个规则
+    for name in rule_files {
+        let is_new = !rule_exists(&name);
+
+        match download_rule(&name).await {
+            Ok(content) => {
+                if let Err(e) = save_rule(&name, &content) {
+                    warn!("保存规则 {} 失败: {}", name, e);
                     result.failed += 1;
                     result.details.push(UpdateDetail {
-                        name: remote_item.name.clone(),
+                        name: name.clone(),
                         action: "failed".to_string(),
-                        message: format!("下载失败: {}", e),
+                        message: format!("保存失败: {}", e),
                     });
-                    // 保留本地版本
-                    if let Some(local) = local_item {
-                        updated_index.push(local.clone());
+                } else {
+                    if is_new {
+                        result.added += 1;
+                        debug!("➕ 新增规则: {}", name);
+                    } else {
+                        result.updated += 1;
+                        debug!("🔄 更新规则: {}", name);
                     }
+                    result.details.push(UpdateDetail {
+                        name: name.clone(),
+                        action: if is_new { "added" } else { "updated" }.to_string(),
+                        message: "ok".to_string(),
+                    });
                 }
             }
-        } else {
-            // 无需更新
-            updated_index.push(remote_item.clone());
+            Err(e) => {
+                warn!("下载规则 {} 失败: {}", name, e);
+                result.failed += 1;
+                result.details.push(UpdateDetail {
+                    name: name.clone(),
+                    action: "failed".to_string(),
+                    message: format!("下载失败: {}", e),
+                });
+            }
         }
     }
 
-    // 保存更新后的索引
-    if let Err(e) = save_local_index(&updated_index) {
-        warn!("保存本地索引失败: {}", e);
+    // 保存当前 commit SHA
+    if let Err(e) = save_last_commit(&latest_commit) {
+        warn!("保存 commit SHA 失败: {}", e);
     }
 
     info!(
@@ -221,3 +289,18 @@ pub async fn update_rules() -> UpdateResult {
     result
 }
 
+/// 检查是否需要更新（仅检查，不执行更新）
+#[allow(dead_code)]
+pub async fn check_for_updates() -> bool {
+    if !has_local_rules() {
+        return true;
+    }
+
+    match fetch_latest_commit().await {
+        Ok(latest) => {
+            let last = read_last_commit();
+            last.as_ref() != Some(&latest)
+        }
+        Err(_) => false,
+    }
+}
