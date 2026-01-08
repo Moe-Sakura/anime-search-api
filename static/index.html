@@ -517,12 +517,24 @@
 
       async function fetchBangumiInfo(keyword) {
         try {
-          const res = await fetch(
-            "/bangumi/search/" + encodeURIComponent(keyword)
-          );
+          const res = await fetch("/bgm/v0/search/subjects?limit=1", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ keyword, filter: { type: [2] } })
+          });
           const data = await res.json();
-          if (data && data.length > 0) {
-            renderBangumiInfo(data[0]);
+          if (data && data.data && data.data.length > 0) {
+            const subject = data.data[0];
+            renderBangumiInfo({
+              name: subject.name,
+              name_cn: subject.name_cn,
+              image: subject.images?.large || subject.images?.common,
+              score: subject.rating?.score,
+              rank: subject.rating?.rank,
+              air_date: subject.date,
+              summary: subject.summary,
+              url: `https://bgm.tv/subject/${subject.id}`
+            });
           } else {
             bangumiSection.style.display = "none";
           }
