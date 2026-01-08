@@ -1,6 +1,11 @@
 //! Bangumi API 集成
 //! https://bangumi.github.io/api/
 //! User Agent 规范: https://github.com/bangumi/api/blob/master/docs-raw/user%20agent.md
+//! 
+//! 注意：这些类型和函数目前未使用（通过 /bgm/* 通用代理访问 Bangumi API）
+//! 保留以便将来可能的直接集成使用
+
+#![allow(dead_code)]
 
 use crate::http_client::HTTP_CLIENT;
 use serde::{Deserialize, Serialize};
@@ -8,7 +13,7 @@ use serde_json::Value;
 use tracing::warn;
 
 const BANGUMI_API: &str = "https://api.bgm.tv";
-const USER_AGENT: &str = "kirito/anime-search (https://github.com/Moe-Sakura/anime-search-api)";
+const USER_AGENT: &str = "kirito/anime-search (https://github.com/AdingApkgg/anime-search-api)";
 
 // Bangumi 应用凭证 (https://bgm.tv/dev/app)
 #[allow(dead_code)]
@@ -612,7 +617,7 @@ impl From<BangumiSubject> for AnimeInfo {
             name_cn: s.name_cn,
             summary: s.summary,
             air_date: s.air_date,
-            image: s.images.map(|i| i.medium).unwrap_or_default(),
+            image: s.images.map(|i| i.large).unwrap_or_default(),
             url: s.url,
             score: s.rating.as_ref().and_then(|r| if r.score > 0.0 { Some(r.score) } else { None }),
             // 优先使用顶层 rank，回退到 rating.rank

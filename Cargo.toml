@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2021"
 description = "在线动漫聚合搜索后端 - Rust + Axum"
 license = "MIT"
-authors = ["Moe-Sakura"]
-repository = "https://github.com/Moe-Sakura/anime-search-api"
+authors = ["Asuna"]
+repository = "https://github.com/AdingApkgg/anime-search-api"
 
 [dependencies]
 # Web 框架
