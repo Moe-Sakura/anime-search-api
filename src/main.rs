@@ -5,6 +5,7 @@ mod http_client;
 mod rules;
 mod types;
 mod updater;
+mod xpath_to_css;
 
 use axum::{
     body::Body,

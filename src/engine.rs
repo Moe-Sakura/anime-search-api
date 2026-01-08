@@ -1,11 +1,11 @@
 //! 规则驱动的搜索引擎
 //! 完全兼容 Kazumi 规则格式: https://github.com/Predidit/Kazumi
-//! 使用 libxml 进行真正的 XPath 解析
+//! 使用纯 Rust 库 (scraper) 进行 HTML 解析，通过 XPath→CSS 转换支持规则
 
 use crate::http_client::{get_text, post_form_text};
 use crate::types::{Episode, EpisodeRoad, PlatformSearchResult, Rule, SearchResultItem};
-use libxml::parser::Parser;
-use libxml::xpath::Context;
+use crate::xpath_to_css::{xpath_to_css, PositionFilter};
+use scraper::{Html, Selector, ElementRef};
 use tracing::{debug, warn};
 
 /// 使用规则搜索动漫
@@ -51,7 +51,7 @@ async fn execute_search(rule: &Rule, keyword: &str) -> anyhow::Result<Vec<Search
     };
 
     // 解析 HTML 并提取结果
-    let items = parse_search_results_xpath(rule, &html)?;
+    let items = parse_search_results(rule, &html)?;
     
     debug!("规则 {} 找到 {} 个结果", rule.name, items.len());
     Ok(items)
@@ -93,84 +93,62 @@ pub async fn fetch_episodes(rule: &Rule, detail_url: &str) -> anyhow::Result<Vec
     let html = get_text(detail_url, Some(&rule.base_url)).await?;
     
     // 解析章节
-    parse_episodes_xpath(rule, &html, detail_url)
+    parse_episodes(rule, &html, detail_url)
 }
 
-/// 使用 XPath 解析章节列表
-fn parse_episodes_xpath(rule: &Rule, html: &str, base_url: &str) -> anyhow::Result<Vec<EpisodeRoad>> {
+/// 解析章节列表
+fn parse_episodes(rule: &Rule, html: &str, base_url: &str) -> anyhow::Result<Vec<EpisodeRoad>> {
     let mut roads = Vec::new();
+    let document = Html::parse_document(html);
 
-    // 使用 libxml 解析 HTML
-    let parser = Parser::default_html();
-    let document = parser
-        .parse_string(html)
-        .map_err(|e| anyhow::anyhow!("HTML 解析失败: {}", e))?;
+    // 转换 XPath 为 CSS
+    let roads_css = xpath_to_css(&rule.chapter_roads)
+        .map_err(|e| anyhow::anyhow!("播放源 XPath 转换失败: {}", e))?;
+    let result_css = xpath_to_css(&rule.chapter_result)
+        .map_err(|e| anyhow::anyhow!("章节 XPath 转换失败: {}", e))?;
 
-    // 创建 XPath 上下文
-    let context = Context::new(&document)
-        .map_err(|_| anyhow::anyhow!("创建 XPath 上下文失败"))?;
+    debug!("播放源 CSS: {}", roads_css.selector);
+    debug!("章节 CSS: {}", result_css.selector);
 
-    // 规范化 XPath 表达式
-    let roads_xpath = normalize_xpath(&rule.chapter_roads);
-    let result_xpath = normalize_xpath(&rule.chapter_result);
-
-    debug!("播放源 XPath: {}", roads_xpath);
-    debug!("章节 XPath: {}", result_xpath);
-
-    // 查询播放源列表
-    let roads_nodes = context.evaluate(&roads_xpath)
-        .map_err(|_| anyhow::anyhow!("无效的播放源 XPath: {}", roads_xpath))?;
-
-    let road_nodes = roads_nodes.get_nodes_as_vec();
-    debug!("找到 {} 个播放源", road_nodes.len());
+    let roads_selector = Selector::parse(&roads_css.selector)
+        .map_err(|e| anyhow::anyhow!("无效的播放源 CSS 选择器: {:?}", e))?;
+    let result_selector = Selector::parse(&result_css.selector)
+        .map_err(|e| anyhow::anyhow!("无效的章节 CSS 选择器: {:?}", e))?;
 
     // 提取 base_url 用于构建完整 URL
     let url_base = extract_base_url(base_url, &rule.base_url);
 
-    for (index, road_node) in road_nodes.iter().enumerate() {
+    // 查询播放源列表
+    let road_elements: Vec<ElementRef> = document.select(&roads_selector)
+        .enumerate()
+        .filter(|(i, _)| apply_position_filter(*i, &roads_css.position_filter))
+        .map(|(_, e)| e)
+        .collect();
+
+    debug!("找到 {} 个播放源", road_elements.len());
+
+    for (index, road_element) in road_elements.iter().enumerate() {
         let mut episodes = Vec::new();
 
-        // 为每个播放源创建子上下文
-        let mut node_context = Context::new(&document)
-            .map_err(|_| anyhow::anyhow!("创建子节点上下文失败"))?;
-
-        // 设置上下文节点
-        if node_context.set_context_node(road_node).is_err() {
-            continue;
-        }
-
-        // 构建相对 XPath
-        let relative_xpath = if result_xpath.starts_with("//") {
-            format!(".{}", result_xpath)
-        } else if result_xpath.starts_with("./") || result_xpath.starts_with(".//") {
-            result_xpath.clone()
-        } else {
-            format!(".//{}", result_xpath)
-        };
-
-        // 查询章节列表
-        if let Ok(eps_result) = node_context.evaluate(&relative_xpath) {
-            let ep_nodes = eps_result.get_nodes_as_vec();
+        // 在播放源内查找章节
+        for ep_element in road_element.select(&result_selector) {
+            // 获取集数名称
+            let name = get_element_text(&ep_element).trim().to_string();
             
-            for ep_node in ep_nodes {
-                // 获取集数名称
-                let name = ep_node.get_content().trim().to_string();
-                
-                // 获取播放链接
-                let href = ep_node.get_attribute("href").unwrap_or_default();
-                
-                if name.is_empty() || href.is_empty() {
-                    continue;
-                }
-
-                let url = normalize_url(&href, &url_base);
-                episodes.push(Episode { name, url });
+            // 获取播放链接
+            let href = ep_element.value().attr("href").unwrap_or_default().to_string();
+            
+            if name.is_empty() || href.is_empty() {
+                continue;
             }
+
+            let url = normalize_url(&href, &url_base);
+            episodes.push(Episode { name, url });
         }
 
         if !episodes.is_empty() {
             roads.push(EpisodeRoad {
-                name: if road_nodes.len() > 1 {
+                name: if road_elements.len() > 1 {
                     Some(format!("线路{}", index + 1))
                 } else {
                     None
@@ -183,46 +161,67 @@ fn parse_episodes_xpath(rule: &Rule, html: &str, base_url: &str) -> anyhow::Resu
     Ok(roads)
 }
 
-/// 使用 XPath 解析搜索结果 (兼容 Kazumi 规则)
-fn parse_search_results_xpath(rule: &Rule, html: &str) -> anyhow::Result<Vec<SearchResultItem>> {
+/// 解析搜索结果 (兼容 Kazumi 规则)
+fn parse_search_results(rule: &Rule, html: &str) -> anyhow::Result<Vec<SearchResultItem>> {
     let mut items = Vec::new();
+    let document = Html::parse_document(html);
 
-    // 使用 libxml 解析 HTML
-    let parser = Parser::default_html();
-    let document = parser
-        .parse_string(html)
-        .map_err(|e| anyhow::anyhow!("HTML 解析失败: {}", e))?;
+    // 转换 XPath 为 CSS
+    let list_css = xpath_to_css(&rule.search_list)
+        .map_err(|e| anyhow::anyhow!("列表 XPath 转换失败: {}", e))?;
+    let name_css = xpath_to_css(&rule.search_name)
+        .map_err(|e| anyhow::anyhow!("名称 XPath 转换失败: {}", e))?;
+    let result_css = if rule.search_result.is_empty() {
+        name_css.clone()
+    } else {
+        xpath_to_css(&rule.search_result)
+            .map_err(|e| anyhow::anyhow!("结果 XPath 转换失败: {}", e))?
+    };
 
-    // 创建 XPath 上下文
-    let context = Context::new(&document)
-        .map_err(|_| anyhow::anyhow!("创建 XPath 上下文失败"))?;
+    debug!("列表 CSS: {}", list_css.selector);
+    debug!("名称 CSS: {}", name_css.selector);
+    debug!("结果 CSS: {}", result_css.selector);
 
-    // 规范化 XPath 表达式
-    let list_xpath = normalize_xpath(&rule.search_list);
-    let name_xpath = normalize_xpath(&rule.search_name);
-    let result_xpath = normalize_xpath(&rule.search_result);
-
-    debug!("列表 XPath: {}", list_xpath);
-    debug!("名称 XPath: {}", name_xpath);
-    debug!("结果 XPath: {}", result_xpath);
+    let list_selector = Selector::parse(&list_css.selector)
+        .map_err(|e| anyhow::anyhow!("无效的列表 CSS 选择器: {:?}", e))?;
+    let name_selector = Selector::parse(&name_css.selector)
+        .map_err(|e| anyhow::anyhow!("无效的名称 CSS 选择器: {:?}", e))?;
+    let result_selector = Selector::parse(&result_css.selector)
+        .map_err(|e| anyhow::anyhow!("无效的结果 CSS 选择器: {:?}", e))?;
 
     // 查询列表元素
-    let list_nodes = context.evaluate(&list_xpath)
-        .map_err(|_| anyhow::anyhow!("无效的列表 XPath: {}", list_xpath))?;
+    let list_elements: Vec<ElementRef> = document.select(&list_selector)
+        .enumerate()
+        .filter(|(i, _)| apply_position_filter(*i, &list_css.position_filter))
+        .map(|(_, e)| e)
+        .collect();
 
-    let nodes = list_nodes.get_nodes_as_vec();
-    debug!("找到 {} 个列表节点", nodes.len());
+    debug!("找到 {} 个列表节点", list_elements.len());
 
-    for node in nodes {
-        // 为每个列表项创建子上下文
-        let mut node_context = Context::new(&document)
-            .map_err(|_| anyhow::anyhow!("创建子节点上下文失败"))?;
+    for element in list_elements {
+        // 在列表项内查找名称
+        let name = element.select(&name_selector)
+            .next()
+            .map(|e| get_element_text(&e).trim().to_string())
+            .unwrap_or_default();
 
-        // 在当前节点下查询名称
-        let name = extract_text_from_node(&mut node_context, &node, &name_xpath);
-        
-        // 在当前节点下查询链接
-        let href = extract_href_from_node(&mut node_context, &node, &result_xpath);
+        // 在列表项内查找链接
+        let href = element.select(&result_selector)
+            .next()
+            .and_then(|e| {
+                // 尝试获取 href 属性
+                e.value().attr("href")
+                    .or_else(|| e.value().attr("data-href"))
+                    .map(|s| s.to_string())
+            })
+            .or_else(|| {
+                // 如果没有找到，尝试在元素内查找 a 标签
+                let a_selector = Selector::parse("a[href]").ok()?;
+                element.select(&a_selector)
+                    .next()
+                    .and_then(|a| a.value().attr("href").map(|s| s.to_string()))
+            })
+            .unwrap_or_default();
 
         if name.is_empty() || href.is_empty() {
             continue;
@@ -242,97 +241,19 @@ fn parse_search_results_xpath(rule: &Rule, html: &str) -> anyhow::Result<Vec<Sea
     Ok(items)
 }
 
-/// 规范化 XPath 表达式
-fn normalize_xpath(xpath: &str) -> String {
-    let xpath = xpath.trim();
-    
-    // 确保以 // 或 . 开头
-    if xpath.starts_with("//") || xpath.starts_with("./") || xpath.starts_with(".//") {
-        xpath.to_string()
-    } else if xpath.starts_with("/") {
-        format!("/{}", xpath)
-    } else if !xpath.is_empty() {
-        // 对于相对路径，添加 .// 前缀
-        format!(".//{}", xpath)
-    } else {
-        xpath.to_string()
+/// 应用位置过滤器
+fn apply_position_filter(index: usize, filter: &Option<PositionFilter>) -> bool {
+    match filter {
+        Some(PositionFilter::GreaterThan(n)) => index >= *n,
+        Some(PositionFilter::LessThan(n)) => index < *n,
+        Some(PositionFilter::Equal(n)) => index == *n,
+        None => true,
     }
 }
 
-/// 从节点中提取文本内容
-fn extract_text_from_node(context: &mut Context, node: &libxml::tree::Node, xpath: &str) -> String {
-    // 构建相对 XPath
-    let relative_xpath = if xpath.starts_with("//") {
-        // 绝对路径转相对路径
-        format!(".{}", xpath)
-    } else if xpath.starts_with("./") || xpath.starts_with(".//") {
-        xpath.to_string()
-    } else {
-        format!(".//{}", xpath)
-    };
-
-    // 设置上下文节点
-    if context.set_context_node(node).is_err() {
-        return String::new();
-    }
-
-    // 执行 XPath 查询
-    if let Ok(result) = context.evaluate(&relative_xpath) {
-        let nodes = result.get_nodes_as_vec();
-        if let Some(target_node) = nodes.first() {
-            // 获取文本内容
-            return get_node_text(target_node);
-        }
-    }
-
-    // 如果 XPath 查询失败，尝试从当前节点获取文本
-    get_node_text(node)
-}
-
-/// 从节点中提取 href 属性
-fn extract_href_from_node(context: &mut Context, node: &libxml::tree::Node, xpath: &str) -> String {
-    // 构建相对 XPath
-    let relative_xpath = if xpath.starts_with("//") {
-        format!(".{}", xpath)
-    } else if xpath.starts_with("./") || xpath.starts_with(".//") {
-        xpath.to_string()
-    } else {
-        format!(".//{}", xpath)
-    };
-
-    // 设置上下文节点
-    if context.set_context_node(node).is_err() {
-        return String::new();
-    }
-
-    // 执行 XPath 查询
-    if let Ok(result) = context.evaluate(&relative_xpath) {
-        let nodes = result.get_nodes_as_vec();
-        if let Some(target_node) = nodes.first() {
-            // 尝试获取 href 属性
-            if let Some(href) = target_node.get_attribute("href") {
-                return href;
-            }
-            // 如果没有 href，尝试获取 data-href 或其他常见属性
-            if let Some(href) = target_node.get_attribute("data-href") {
-                return href;
-            }
-            // 递归查找 a 标签
-            if let Ok(a_result) = context.evaluate(".//a/@href") {
-                let a_nodes = a_result.get_nodes_as_vec();
-                if let Some(a_node) = a_nodes.first() {
-                    return a_node.get_content();
-                }
-            }
-        }
-    }
-
-    String::new()
-}
-
-/// 获取节点的文本内容
-fn get_node_text(node: &libxml::tree::Node) -> String {
-    node.get_content().trim().to_string()
+/// 获取元素的文本内容
+fn get_element_text(element: &ElementRef) -> String {
+    element.text().collect::<Vec<_>>().join(" ").trim().to_string()
 }
 
 /// 规范化 URL
@@ -362,13 +283,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_normalize_xpath() {
-        assert_eq!(normalize_xpath("//div/a"), "//div/a");
-        assert_eq!(normalize_xpath("./div/a"), "./div/a");
-        assert_eq!(normalize_xpath("div/a"), ".//div/a");
-    }
-
-    #[test]
     fn test_normalize_url() {
         assert_eq!(
             normalize_url("/video/123", "https://example.com"),
@@ -385,7 +299,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_html_with_xpath() {
+    fn test_parse_html_with_css() {
         let html = r#"
         <html>
         <body>
@@ -401,12 +315,20 @@ mod tests {
         </html>
         "#;
 
-        let parser = Parser::default_html();
-        let doc = parser.parse_string(html).unwrap();
-        let context = Context::new(&doc).unwrap();
+        let document = Html::parse_document(html);
+        let selector = Selector::parse("div.item").unwrap();
+        let items: Vec<_> = document.select(&selector).collect();
+        assert_eq!(items.len(), 2);
+    }
 
-        let result = context.evaluate("//div[@class='item']").unwrap();
-        let nodes = result.get_nodes_as_vec();
-        assert_eq!(nodes.len(), 2);
+    #[test]
+    fn test_get_element_text() {
+        let html = r#"<div><span>Hello</span> <span>World</span></div>"#;
+        let document = Html::parse_document(html);
+        let selector = Selector::parse("div").unwrap();
+        let element = document.select(&selector).next().unwrap();
+        let text = get_element_text(&element);
+        assert!(text.contains("Hello"));
+        assert!(text.contains("World"));
     }
 }
