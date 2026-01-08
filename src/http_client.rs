@@ -7,7 +7,7 @@ use thiserror::Error;
 const TIMEOUT_SECONDS: u64 = 15;
 const RETRY_TIMEOUT_SECONDS: u64 = 20;
 
-const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36 (AnimeSearch API)";
+const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36";
 
 /// 反代前缀 (用于网络问题时重试)
 const PROXY_PREFIX: &str = "https://rp.30hb.cn/?target=";
